@@ -11,9 +11,12 @@ import librosa
 import librosa.display
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from mutagen import File as MutagenFile
 from datetime import datetime
+from PIL import Image, ImageTk
+import io
+from scipy.stats import kurtosis, skew
 
 def get_system_theme():
     try:
@@ -48,29 +51,113 @@ class AudioAnalyzerApp:
         self.score = 0
         self.score_detail = {}
         self.root.title("🎵 YYDB 音频分析器")
-        self.root.geometry("1200x800")
+        self.root.geometry("950x770")
+        self.root.resizable(False, False)
         self.theme = get_system_theme()
         self.setup_style()
         self.init_pygame()
         self.build_layout()
 
     def setup_style(self):
+        default_font = ("Microsoft YaHei", 10)
         style = ttk.Style()
-        style.theme_use('clam')
-        self.bg = '#1e1e1e' if self.theme == 'dark' else '#ffffff'
-        self.fg = '#eeeeee' if self.theme == 'dark' else '#222222'
-        self.hl = '#3a91e0'
+        style.theme_use('vista' if platform.system() == 'Windows' else 'clam')
+        style.configure('.', font=default_font)
+
+        # 现代配色方案
+        if self.theme == 'dark':
+            self.bg = '#1e1e1e'
+            self.fg = '#f0f0f0'
+            self.hl = '#0e639c'
+            self.secondary = '#2d2d30'
+            self.text_bg = '#252526'
+        else:
+            self.bg = '#f9f9f9'
+            self.fg = '#333333'
+            self.hl = '#007acc'
+            self.secondary = '#e5e5e5'
+            self.text_bg = '#ffffff'
+
         self.root.configure(bg=self.bg)
-        style.configure('TButton', font=('Segoe UI', 11), padding=6)
-        style.configure('TNotebook', tabposition='n', font=('Segoe UI', 11))
-        style.configure('TNotebook.Tab', padding=[10, 6], font=('Segoe UI', 10, 'bold'))
+
+        # 强制设置主题为clam，确保按钮样式一致
+        style.theme_use('clam')
+        
+        # 按钮统一风格 - 使用固定颜色不受主题影响
+        style.configure('TButton',
+            font=('Microsoft YaHei', 10, 'bold'),
+            padding=10,
+            background='#007acc',
+            foreground='white',
+            relief='flat',
+            borderwidth=0,
+            bordercolor='#007acc',
+            focuscolor='#007acc',
+            lightcolor='#007acc',
+            darkcolor='#007acc')
+        style.map('TButton',
+            background=[('active', '#005f9e'), ('!disabled', '#007acc')],
+            foreground=[('active', 'white'), ('!disabled', 'white')])
+
+        # 播放控制按钮风格
+        style.configure('Modern.TButton',
+            font=('Microsoft YaHei', 10, 'bold'),
+            background='#007acc',
+            foreground='white',
+            padding=8,
+            relief='flat',
+            borderwidth=0,
+            bordercolor='#007acc',
+            focuscolor='#007acc',
+            lightcolor='#007acc',
+            darkcolor='#007acc')
+        style.map('Modern.TButton',
+            background=[('active', '#005f9e'), ('pressed', '#005f9e')],
+            foreground=[('active', 'white'), ('pressed', 'white')])
+
+        # 导出按钮
+        style.configure('Accent.TButton',
+            font=('Segoe UI', 11, 'bold'),
+            background='#007acc',
+            foreground='white',
+            padding=10,
+            bordercolor='#007acc',
+            focuscolor='#007acc',
+            lightcolor='#007acc',
+            darkcolor='#007acc')
+        style.map('Accent.TButton',
+            background=[('active', '#007acc'), ('!disabled', '#007acc')],
+            foreground=[('active', 'white'), ('!disabled', 'white')])
+
+        # 分析和播放进度条（统一高度）
+        style.configure('Horizontal.TProgressbar',
+            thickness=10,
+            troughcolor=self.secondary,
+            background=self.hl,
+            bordercolor=self.secondary,
+            lightcolor=self.hl,
+            darkcolor=self.hl)
+
+        # 拖动条（播放进度条）
+        style.configure('TScale',
+            troughcolor=self.secondary,
+            background=self.hl,
+            sliderlength=14,
+            sliderthickness=12)
 
     def init_pygame(self):
         pygame.mixer.init()
 
     def build_layout(self):
+        # 先清除所有子组件
+        for widget in self.root.winfo_children():
+            widget.destroy()
+            
         top = tk.Frame(self.root, bg=self.bg)
         top.pack(fill=tk.X, padx=10, pady=10)
+        
+        # 强制刷新布局
+        self.root.update_idletasks()
 
         self.select_btn = ttk.Button(top, text="选择音频", command=self.choose_file)
         self.select_btn.pack(side=tk.LEFT)
@@ -78,55 +165,162 @@ class AudioAnalyzerApp:
         self.analyze_btn = ttk.Button(top, text="分析", command=self.start_analysis, state=tk.DISABLED)
         self.analyze_btn.pack(side=tk.RIGHT)
 
-        self.path_label = tk.Label(top, text="未选择文件", bg=self.bg, fg=self.fg)
+        self.path_label = tk.Label(top, text="未选择文件", bg=self.bg, fg=self.fg, font=("Segoe UI", 10))
         self.path_label.pack(side=tk.LEFT, padx=10)
 
-        self.tabs = ttk.Notebook(self.root)
-        self.tabs.pack(fill=tk.BOTH, expand=True)
+        # 主内容区域
+        main_frame = tk.Frame(self.root, bg=self.bg)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
-        self.info_tab = tk.Frame(self.tabs, bg=self.bg)
-        self.score_tab = tk.Frame(self.tabs, bg=self.bg)
-        self.spectrum_tab = tk.Frame(self.tabs, bg=self.bg)
-        self.play_tab = tk.Frame(self.tabs, bg=self.bg)
+        # 左侧信息面板 (固定宽度500px，高度由子元素决定)
+        left_panel = tk.Frame(main_frame, bg=self.bg, width=300)
+        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=(0, 10), pady=0)
 
-        self.tabs.add(self.info_tab, text="基本信息")
-        self.tabs.add(self.score_tab, text="评分")
-        self.tabs.add(self.spectrum_tab, text="频谱图")
-        self.tabs.add(self.play_tab, text="播放")
+        # 右侧面板 (宽度500px，可扩展填充剩余空间)
+        right_panel = tk.Frame(main_frame, bg=self.bg, width=300)
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=0)
 
-        self.info_text = tk.Text(self.info_tab, bg=self.bg, fg=self.fg, font=("Consolas", 10))
-        self.info_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        left_panel.pack_propagate(False)
+        right_panel.pack_propagate(False)
 
-        self.score_text = tk.Text(self.score_tab, bg=self.bg, fg=self.fg, font=("Consolas", 11))
-        self.score_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        self.export_btn = ttk.Button(self.info_tab, text="📤 导出分析报告", command=self.export_report)
-        self.export_btn.pack(pady=10)
-
-        # 播放控制
-        control_frame = tk.Frame(self.play_tab, bg=self.bg)
-        control_frame.pack(pady=20)
-
-        self.play_btn = ttk.Button(control_frame, text="▶️ 播放", command=self.play_audio)
-        self.pause_btn = ttk.Button(control_frame, text="⏸ 暂停", command=self.pause_audio)
-        self.resume_btn = ttk.Button(control_frame, text="🔄 恢复", command=self.resume_audio)
-        self.stop_btn = ttk.Button(control_frame, text="⏹ 停止", command=self.stop_audio)
-
-        self.play_btn.grid(row=0, column=0, padx=10)
-        self.pause_btn.grid(row=0, column=1, padx=10)
-        self.resume_btn.grid(row=0, column=2, padx=10)
-        self.stop_btn.grid(row=0, column=3, padx=10)
-
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Scale(self.play_tab, from_=0, to=100, orient="horizontal", variable=self.progress_var, command=self.seek_audio)
-        self.progress_bar.pack(fill=tk.X, padx=20)
-
-        self.time_label = tk.Label(self.play_tab, text="00:00 / 00:00", bg=self.bg, fg=self.fg)
-        self.time_label.pack(pady=5)
+        # 信息显示区域 (固定高度250px)
+        info_frame = tk.LabelFrame(left_panel, text="音频信息", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"), height=380)
+        info_frame.pack_propagate(False)  # 禁止自动调整大小
+        info_frame.pack(fill=tk.X, expand=False, pady=5)
         
-        self.analyze_progress = ttk.Progressbar(self.root, length=300, mode='determinate')
-        self.analyze_progress.pack(pady=8)
+        self.info_text = tk.Text(info_frame, 
+                               bg=self.text_bg, 
+                               fg=self.fg, 
+                               font=("Segoe UI", 10),
+                               relief='flat',
+                               padx=10,
+                               pady=10,
+                               wrap=tk.WORD)
+        self.info_text.pack(fill=tk.BOTH, expand=True)
 
+        # 评分区域 (固定高度250px)
+        score_frame = tk.LabelFrame(left_panel, text="音频评分", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"), height=200)
+        score_frame.pack_propagate(False)  # 禁止自动调整大小
+        score_frame.pack(fill=tk.BOTH, expand=False, pady=5)
+        
+        self.score_text = tk.Text(score_frame, 
+                                bg=self.text_bg, 
+                                fg=self.fg, 
+                                font=("Segoe UI", 11),
+                                relief='flat',
+                                padx=10,
+                                pady=10,
+                                wrap=tk.WORD)
+        self.score_text.pack(fill=tk.BOTH, expand=True)
+
+        # 频谱图区域
+        spec_frame = tk.LabelFrame(right_panel, text="频谱分析", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"))
+        spec_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        self.spectrum_tab = tk.Frame(spec_frame, bg=self.bg)
+        self.spectrum_tab.pack(fill=tk.BOTH, expand=True)
+
+        # 播放控制区域
+        play_frame = tk.LabelFrame(right_panel, text="播放控制", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"))
+        play_frame.pack(fill=tk.BOTH, expand=False)
+        
+        self.play_tab = tk.Frame(play_frame, bg=self.bg)
+        self.play_tab.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # 导出按钮
+        btn_frame = tk.Frame(left_panel, bg=self.bg)
+        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        self.export_btn = ttk.Button(btn_frame, 
+                                   text="📤 导出分析报告", 
+                                   command=self.export_report,
+                                   style='Accent.TButton')
+        self.export_btn.pack(pady=5, ipadx=20)
+        
+        # 添加样式
+        style = ttk.Style()
+        style.configure('Accent.TButton',
+            font=('Segoe UI', 11, 'bold'),
+            foreground='white',
+            background=self.hl,
+            padding=8)
+        style.map('Accent.TButton',
+            background=[('active', self.hl), ('!active', self.hl)],
+            foreground=[('active', 'white'), ('!active', 'white')])
+
+        # 播放控制区域
+        control_frame = tk.Frame(self.play_tab, bg=self.bg)
+        control_frame.pack(pady=(20, 10))
+
+        # 进度条和时间显示
+        progress_frame = tk.Frame(self.play_tab, bg=self.bg)
+        progress_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
+        # 播放进度条
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Scale(progress_frame,
+            from_=0,
+            to=100,
+            orient='horizontal',
+            variable=self.progress_var,
+            command=self.seek_audio,
+            style='TScale')
+        self.progress_bar.pack(fill=tk.X, pady=(0, 5))
+        
+        time_frame = tk.Frame(progress_frame, bg=self.bg)
+        time_frame.pack(fill=tk.X)
+        
+        self.current_time = tk.Label(time_frame, 
+                                   text="00:00", 
+                                   bg=self.bg, 
+                                   fg=self.fg,
+                                   font=("Segoe UI", 9))
+        self.current_time.pack(side=tk.LEFT)
+        
+        self.total_time = tk.Label(time_frame, 
+                                 text="/ 00:00", 
+                                 bg=self.bg, 
+                                 fg=self.fg,
+                                 font=("Segoe UI", 9))
+        self.total_time.pack(side=tk.RIGHT)
+
+        # 控制按钮
+        btn_style = 'Modern.TButton'
+        self.play_btn = ttk.Button(control_frame, text="▶ 播放", command=self.play_audio, style=btn_style)
+        self.pause_btn = ttk.Button(control_frame, text="⏸ 暂停", command=self.pause_audio, style=btn_style)
+        self.resume_btn = ttk.Button(control_frame, text="↻ 恢复", command=self.resume_audio, style=btn_style)
+        self.stop_btn = ttk.Button(control_frame, text="⏹ 停止", command=self.stop_audio, style=btn_style)
+
+        self.play_btn.grid(row=0, column=0, padx=6, ipadx=10)
+        self.pause_btn.grid(row=0, column=1, padx=6, ipadx=10)
+        self.resume_btn.grid(row=0, column=2, padx=6, ipadx=10)
+        self.stop_btn.grid(row=0, column=3, padx=6, ipadx=10)
+
+        
+        # 调整控制区域宽度
+        control_frame.config(width=600)
+        
+        # 调整控制区域大小
+        control_frame.pack(pady=10, padx=10)
+        
+        # 底部状态栏
+        status_frame = tk.Frame(self.root, bg=self.secondary, height=30)
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(0, 5))
+
+        # 整体分析进度条
+        self.overall_progress = ttk.Progressbar(status_frame,
+            length=300,
+            mode='determinate',
+            style='Horizontal.TProgressbar')
+        self.overall_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10, pady=5)
+
+        # 状态文字
+        self.status_label = tk.Label(status_frame,
+            text="就绪",
+            bg=self.secondary,
+            fg=self.fg,
+            font=("Segoe UI", 9))
+        self.status_label.pack(side=tk.RIGHT, padx=10)
 
     def choose_file(self):
         path = filedialog.askopenfilename(filetypes=[("音频文件", "*.mp3 *.flac *.wav *.m4a *.ape")])
@@ -141,7 +335,8 @@ class AudioAnalyzerApp:
         self.playing = False
         self.paused = False
         self.progress_var.set(0)
-        self.time_label.config(text="00:00 / 00:00")
+        self.current_time.config(text="00:00")
+        self.total_time.config(text="/ 00:00")
 
     def play_audio(self):
         if not self.file_path:
@@ -167,25 +362,52 @@ class AudioAnalyzerApp:
         self.playing = False
         self.paused = False
         self.progress_var.set(0)
-        self.time_label.config(text="00:00 / 00:00")
+        self.current_time.config(text="00:00")
+        self.total_time.config(text="/ 00:00")
 
     def seek_audio(self, val):
-        if not self.y or not self.sr or self.duration <= 0:
+        if self.y is None or self.sr is None or self.duration <= 0:
             return
+            
         try:
-            pos = float(val)
+            # 确保值在0-100范围内
+            pos = max(0, min(100, float(val)))
             seek_time = (pos / 100.0) * self.duration
+            
+            # 计算开始采样点
             start_sample = int(seek_time * self.sr)
-            y_seek = self.y[start_sample:]
-            temp_path = "_seek_temp.wav"
-            librosa.output.write_wav(temp_path, y_seek, self.sr)
+            if start_sample >= len(self.y):
+                return
+                
+            # 创建临时文件
+            temp_dir = os.path.join(os.path.dirname(self.file_path), "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_path = os.path.join(temp_dir, f"seek_temp_{time.time()}.wav")
+            
+            # 使用soundfile替代librosa.output.write_wav
+            import soundfile as sf
+            sf.write(temp_path, self.y[start_sample:], self.sr)
+            
+            # 停止当前播放并加载新位置
             pygame.mixer.music.stop()
             pygame.mixer.music.load(temp_path)
             pygame.mixer.music.play()
+            
+            # 更新播放状态
             self.playing = True
             self.paused = False
+            
+            # 删除旧临时文件
+            for f in os.listdir(temp_dir):
+                if f.startswith("seek_temp_") and f.endswith(".wav"):
+                    try:
+                        os.remove(os.path.join(temp_dir, f))
+                    except:
+                        pass
+                        
         except Exception as e:
-            print("跳转播放出错：", e)
+            print(f"跳转播放出错：{str(e)}")
+            self.status_label.config(text=f"跳转出错：{str(e)}")
 
     def track_progress(self):
         while self.playing:
@@ -194,7 +416,8 @@ class AudioAnalyzerApp:
                 try:
                     percent = (elapsed / self.duration) * 100
                     self.progress_var.set(percent)
-                    self.time_label.config(text=f"{self.format_time(elapsed)} / {self.format_time(self.duration)}")
+                    self.current_time.config(text=self.format_time(elapsed))
+                    self.total_time.config(text=f"/ {self.format_time(self.duration)}")
                 except:
                     pass
             time.sleep(0.5)
@@ -208,8 +431,9 @@ class AudioAnalyzerApp:
         threading.Thread(target=self.analyze_file, daemon=True).start()
 
     def analyze_file(self):
-        self.analyze_progress['value'] = 0
-        self.analyze_progress.update()
+        self.status_label.config(text="开始分析...")
+        self.overall_progress['value'] = 0
+        self.overall_progress.update()
 
         if not self.file_path:
             return
@@ -219,32 +443,54 @@ class AudioAnalyzerApp:
 
         self.info_text.insert(tk.END, f"文件: {self.file_path}\n")
 
+        # Step 1：加载音频
+        self.status_label.config(text="加载音频文件...")
         self.y, self.sr = librosa.load(self.file_path, sr=None, mono=True)
         self.duration = librosa.get_duration(y=self.y, sr=self.sr)
+        self.overall_progress['value'] = 10
+        self.overall_progress.update()
 
+        # Step 2：计算响度、动态范围等基础特征
+        self.status_label.config(text="提取响度和动态范围...")
         rms = np.sqrt(np.mean(self.y ** 2))
         peak = np.max(np.abs(self.y))
         loudness_db = 20 * np.log10(rms + 1e-9)
         dynamic_range = 20 * np.log10((peak + 1e-9) / (rms + 1e-9))
         silent_ratio = np.mean(np.abs(self.y) < 1e-4)
+        self.overall_progress['value'] = 25
+        self.overall_progress.update()
+
+        # Step 3：频谱中心、带宽、节拍等
+        self.status_label.config(text="计算频谱特征...")
         spec_centroid = librosa.feature.spectral_centroid(y=self.y, sr=self.sr).mean()
         spec_bw = librosa.feature.spectral_bandwidth(y=self.y, sr=self.sr).mean()
-        tempo = float(librosa.beat.tempo(y=self.y, sr=self.sr)[0])
+        tempo = float(librosa.feature.rhythm.tempo(y=self.y, sr=self.sr)[0])
         zero_crossings = librosa.feature.zero_crossing_rate(y=self.y).mean()
+        self.overall_progress['value'] = 40
+        self.overall_progress.update()
 
+        # Step 4：提取基频
+        self.status_label.config(text="估算基频...")
         try:
             pitches, magnitudes = librosa.piptrack(y=self.y, sr=self.sr)
             pitch_values = pitches[magnitudes > np.median(magnitudes)]
             pitch_mean = pitch_values.mean() if len(pitch_values) > 0 else 0
         except:
             pitch_mean = 0
+        self.overall_progress['value'] = 50
+        self.overall_progress.update()
 
+        # Step 5：码率、压缩率等
+        self.status_label.config(text="计算码率与压缩率...")
         size_bytes = os.path.getsize(self.file_path)
         bitrate = (size_bytes * 8) / self.duration / 1000
         compression_ratio = size_bytes / (self.duration * self.sr * 2)
-
         file_hash = hash_file(self.file_path)
+        self.overall_progress['value'] = 60
+        self.overall_progress.update()
 
+        # Step 6：评分系统
+        self.status_label.config(text="执行评分分析...")
         self.score_detail = {
             "比特率": 20 if bitrate > 256 else 10,
             "动态范围": 20 if dynamic_range > 12 else 10,
@@ -253,14 +499,21 @@ class AudioAnalyzerApp:
             "结构完整性": 20 if spec_bw > 1000 else 10
         }
         self.score = sum(self.score_detail.values())
+        self.overall_progress['value'] = 70
+        self.overall_progress.update()
 
+        # Step 7：高级统计（对称性、能量变化、峰度、偏度）
+        self.status_label.config(text="提取信号统计特征...")
         from scipy.stats import kurtosis, skew
-
         symmetry = np.mean(self.y[self.y > 0]) - np.mean(self.y[self.y < 0])
         energy_std = np.std(librosa.feature.rms(y=self.y))
         kurt = kurtosis(self.y)
         skw = skew(self.y)
+        self.overall_progress['value'] = 80
+        self.overall_progress.update()
 
+        # Step 8：填充信息面板
+        self.status_label.config(text="填充数据到面板...")
         self.info_text.insert(tk.END, f"时长: {self.format_time(self.duration)}\n")
         self.info_text.insert(tk.END, f"采样率: {self.sr} Hz\n")
         self.info_text.insert(tk.END, f"响度: {loudness_db:.2f} dB\n")
@@ -278,31 +531,99 @@ class AudioAnalyzerApp:
         self.info_text.insert(tk.END, f"信号对称性: {symmetry:.4f}\n")
         self.info_text.insert(tk.END, f"峰度（kurtosis）: {kurt:.4f}\n")
         self.info_text.insert(tk.END, f"偏度（skew）: {skw:.4f}\n")
+        self.overall_progress['value'] = 90
+        self.overall_progress.update()
 
+        # Step 9：填充评分面板
         self.score_text.insert(tk.END, f"综合评分：{self.score}/100\n\n")
         for k, v in self.score_detail.items():
             self.score_text.insert(tk.END, f"{k}: {v}/20\n")
-
-        threading.Thread(target=self.draw_spectrum, daemon=True).start()
-
-        self.analyze_progress['value'] = 100
-        self.analyze_progress.update()
         
+        # 绘制频谱图
+        self.draw_spectrum()
+                
     def draw_spectrum(self):
         if self.y is None or self.sr is None:
             return
-        D = librosa.amplitude_to_db(np.abs(librosa.stft(self.y, n_fft=2048, hop_length=512)), ref=np.max)
-        fig = plt.figure(figsize=(10, 4), dpi=100)
-        ax = fig.add_subplot(1, 1, 1)
-        img = librosa.display.specshow(D, sr=self.sr, x_axis='time', y_axis='log', cmap='inferno', ax=ax)
-        ax.set_title('频谱图（Spek 风格）')
-        fig.colorbar(img, ax=ax, format='%+2.0f dB')
-        for child in self.spectrum_tab.winfo_children():
-            child.destroy()
-        canvas = FigureCanvasTkAgg(fig, master=self.spectrum_tab)
-        canvas.draw()
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        def _plot():
+            import matplotlib
+            matplotlib.use("Agg")  # 使用无GUI后端
+            import matplotlib.pyplot as plt
+            import librosa.display
+
+            # 清理旧图
+            for child in self.spectrum_tab.winfo_children():
+                child.destroy()
+
+            self.status_label.config(text="绘制频谱图...")
+
+            # 计算频谱
+            D = librosa.amplitude_to_db(np.abs(librosa.stft(self.y, n_fft=2048, hop_length=512)), ref=np.max)
+
+            # 设置样式
+            plt.style.use('dark_background' if self.theme == 'dark' else 'default')
+            plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
+            plt.rcParams['axes.unicode_minus'] = False
+
+            # 创建图形并绘图（完全自适应）
+            fig = plt.figure(facecolor=self.text_bg)
+            ax = fig.add_subplot(111)
+            
+            # 调整频谱图显示参数
+            img = librosa.display.specshow(D, sr=self.sr, x_axis='time', y_axis='log',
+                                        cmap='magma' if self.theme == 'dark' else 'viridis',
+                                        ax=ax,
+                                        hop_length=512)
+            
+            # 优化标签显示
+            ax.set_title('频谱图', fontsize=10, color=self.fg, pad=5)
+            ax.tick_params(colors=self.fg, labelsize=8)
+            ax.set_facecolor(self.text_bg)
+            
+            # 最小化边距
+            fig.tight_layout(pad=0.2, h_pad=0.2, w_pad=0.2)
+
+            # 保存图像时完全去除多余空白
+            buf = io.BytesIO()
+            fig.savefig(buf, 
+                      format='png', 
+                      bbox_inches='tight',
+                      pad_inches=0.05,
+                      dpi='figure')
+            plt.close(fig)
+            buf.seek(0)
+            
+            # 加载并调整图像大小
+            pil_image = Image.open(buf)
+            img_width = self.spectrum_tab.winfo_width() - 20  # 留10px边距
+            if img_width > 0:  # 确保有有效宽度
+                pil_image = pil_image.resize((img_width, int(pil_image.height * img_width / pil_image.width)))
+            
+            # 转为Tkinter图像
+            img_tk = ImageTk.PhotoImage(pil_image)
+
+            def _display():
+                # 清除旧图像
+                for child in self.spectrum_tab.winfo_children():
+                    child.destroy()
+                
+                # 创建自适应标签
+                label = tk.Label(self.spectrum_tab, 
+                               image=img_tk, 
+                               bg=self.bg,
+                               anchor='center')
+                label.image = img_tk
+                label.pack(fill=tk.BOTH, expand=True)
+
+                self.status_label.config(text="分析完成 ✅")
+                self.overall_progress['value'] = 100
+                self.overall_progress.update()
+
+            self.root.after(0, _display)
+
+        threading.Thread(target=_plot, daemon=True).start()
+        
     def export_report(self):
         if not self.file_path or self.y is None:
             messagebox.showwarning("提示", "请先分析音频。")
@@ -311,14 +632,43 @@ class AudioAnalyzerApp:
         if not save_path:
             return
         try:
+            # 收集所有分析数据
             report = {
-                "文件路径": self.file_path,
-                "哈希": hash_file(self.file_path),
-                "时长": self.duration,
-                "采样率": self.sr,
-                "评分": self.score,
-                "评分明细": self.score_detail,
-                "分析时间": datetime.now().isoformat()
+                "文件信息": {
+                    "路径": self.file_path,
+                    "文件名": os.path.basename(self.file_path),
+                    "大小(MB)": round(os.path.getsize(self.file_path)/(1024*1024), 2),
+                    "哈希": hash_file(self.file_path),
+                    "分析时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                },
+                "音频特征": {
+                    "时长(秒)": round(self.duration, 2),
+                    "采样率(Hz)": self.sr,
+                    "比特率(kbps)": round((os.path.getsize(self.file_path)*8)/self.duration/1000, 1),
+                    "响度(dB)": round(20*np.log10(np.sqrt(np.mean(self.y**2))+1e-9), 2),
+                    "动态范围(dB)": round(20*np.log10((np.max(np.abs(self.y))+1e-9)/(np.sqrt(np.mean(self.y**2))+1e-9)), 2),
+                    "频谱中心(Hz)": round(librosa.feature.spectral_centroid(y=self.y, sr=self.sr).mean(), 1),
+                    "频谱带宽(Hz)": round(librosa.feature.spectral_bandwidth(y=self.y, sr=self.sr).mean(), 1),
+                    "节拍(BPM)": round(float(librosa.beat.tempo(y=self.y, sr=self.sr)[0]), 1),
+                    "静音比例": round(np.mean(np.abs(self.y) < 1e-4), 4)
+                },
+                "评分结果": {
+                    "综合评分": self.score,
+                    "评分明细": self.score_detail,
+                    "评分标准": {
+                        "比特率": ">256kbps得20分，否则10分",
+                        "动态范围": ">12dB得20分，否则10分", 
+                        "编码质量": "基于比特率评分",
+                        "响度与动态": "响度>-18dB且动态>12dB得20分，否则10分",
+                        "结构完整性": "频谱带宽>1000Hz得20分，否则10分"
+                    }
+                },
+                "高级统计": {
+                    "能量变化率": round(np.std(librosa.feature.rms(y=self.y)), 4),
+                    "信号对称性": round(np.mean(self.y[self.y>0])-np.mean(self.y[self.y<0]), 4),
+                    "峰度": round(float(kurtosis(self.y)), 4),
+                    "偏度": round(float(skew(self.y)), 4)
+                }
             }
             with open(save_path, "w", encoding="utf-8") as f:
                 json.dump(report, f, indent=4, ensure_ascii=False)

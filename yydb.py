@@ -464,7 +464,7 @@ class AudioAnalyzerApp:
         self.status_label.config(text="计算频谱特征...")
         spec_centroid = librosa.feature.spectral_centroid(y=self.y, sr=self.sr).mean()
         spec_bw = librosa.feature.spectral_bandwidth(y=self.y, sr=self.sr).mean()
-        tempo = float(librosa.feature.rhythm.tempo(y=self.y, sr=self.sr)[0])
+        tempo = float(librosa.beat.tempo(y=self.y, sr=self.sr)[0])
         zero_crossings = librosa.feature.zero_crossing_rate(y=self.y).mean()
         self.overall_progress['value'] = 40
         self.overall_progress.update()

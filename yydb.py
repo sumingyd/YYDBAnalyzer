@@ -448,6 +448,7 @@ class AudioAnalyzerApp:
         self.score_text.delete(1.0, tk.END)
 
         self.info_text.insert(tk.END, f"文件: {self.file_path}\n")
+        self.info_text.insert(tk.END, f"大小: {round(os.path.getsize(self.file_path)/(1024*1024), 2)} MB\n")
 
         # Step 1：加载音频
         self.status_label.config(text="加载音频文件...")
@@ -520,6 +521,7 @@ class AudioAnalyzerApp:
 
         # Step 8：填充信息面板
         self.status_label.config(text="填充数据到面板...")
+        self.info_text.insert(tk.END, f"大小: {round(os.path.getsize(self.file_path)/(1024*1024), 2)} MB\n")
         self.info_text.insert(tk.END, f"时长: {self.format_time(self.duration)}\n")
         self.info_text.insert(tk.END, f"采样率: {self.sr} Hz\n")
         self.info_text.insert(tk.END, f"响度: {loudness_db:.2f} dB\n")
@@ -532,7 +534,7 @@ class AudioAnalyzerApp:
         self.info_text.insert(tk.END, f"过零率: {zero_crossings:.4f}\n")
         self.info_text.insert(tk.END, f"估算比特率: {bitrate:.1f} kbps\n")
         self.info_text.insert(tk.END, f"压缩率: {compression_ratio:.2f}\n")
-        self.info_text.insert(tk.END, f"文件哈希: {file_hash}\n")
+        self.info_text.insert(tk.END, f"文件哈希: \n{file_hash}\n")
         self.info_text.insert(tk.END, f"能量变化率: {energy_std:.4f}\n")
         self.info_text.insert(tk.END, f"信号对称性: {symmetry:.4f}\n")
         self.info_text.insert(tk.END, f"峰度（kurtosis）: {kurt:.4f}\n")

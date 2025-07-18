@@ -320,6 +320,14 @@ class AudioAnalyzerApp:
             style='Horizontal.TProgressbar')
         self.overall_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10, pady=5)
 
+        # 用时标签
+        self.time_label = tk.Label(status_frame,
+            text="用时: 0.00秒",
+            bg=self.secondary,
+            fg=self.fg,
+            font=("Segoe UI", 9))
+        self.time_label.pack(side=tk.RIGHT, padx=10)
+
         # 状态文字
         self.status_label = tk.Label(status_frame,
             text="就绪",
@@ -437,7 +445,13 @@ class AudioAnalyzerApp:
         threading.Thread(target=self.analyze_file, daemon=True).start()
 
     def analyze_file(self):
+        self.analysis_start_time = time.time()
+        self.analysis_running = True
+        # 启动计时器线程
+        self.timer_thread = threading.Thread(target=self.update_timer, daemon=True)
+        self.timer_thread.start()
         self.status_label.config(text="开始分析...")
+        self.time_label.config(text="用时: 0.00秒")
         self.overall_progress['value'] = 0
         self.overall_progress.update()
 
@@ -623,9 +637,11 @@ class AudioAnalyzerApp:
                 label.image = img_tk
                 label.pack(fill=tk.BOTH, expand=True)
 
-                self.status_label.config(text="分析完成 ✅")
+                self.analysis_running = False
+                self.timer_thread.join()  # 等待计时器线程结束
                 self.overall_progress['value'] = 100
                 self.overall_progress.update()
+                self.status_label.config(text="分析完成")
 
             self.root.after(0, _display)
 
@@ -648,7 +664,7 @@ class AudioAnalyzerApp:
         
         # 版本信息
         version = tk.Label(about_win,
-                          text="版本: 2.0.0",
+                          text="版本: 3.0.0",
                           font=("Microsoft YaHei", 10),
                           bg=self.bg,
                           fg=self.fg)
@@ -708,6 +724,13 @@ class AudioAnalyzerApp:
                              command=about_win.destroy,
                              style='Accent.TButton')
         close_btn.pack(pady=10)
+
+    def update_timer(self):
+        """更新计时器显示"""
+        while self.analysis_running:
+            elapsed = time.time() - self.analysis_start_time
+            self.time_label.config(text=f"用时: {elapsed:.2f}秒")
+            time.sleep(0.1)
 
     def export_report(self):
         if not self.file_path or self.y is None:

@@ -633,7 +633,7 @@ class AudioAnalyzerApp:
     def show_about(self):
         about_win = tk.Toplevel(self.root)
         about_win.title("关于 YYDB 音频分析器")
-        about_win.geometry("400x300")
+        about_win.geometry("500x300")
         about_win.resizable(False, False)
         about_win.configure(bg=self.bg)
         
@@ -672,7 +672,7 @@ class AudioAnalyzerApp:
         
         github_link = tk.Text(github_frame,
                             height=1,
-                            width=30,
+                            width=40,
                             font=("Microsoft YaHei", 10),
                             bg=self.text_bg,
                             fg="#0066cc",

@@ -184,7 +184,7 @@ class AudioAnalyzerApp:
         right_panel.pack_propagate(False)
 
         # 信息显示区域 (固定高度250px)
-        info_frame = tk.LabelFrame(left_panel, text="音频信息", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"), height=380)
+        info_frame = tk.LabelFrame(left_panel, text="音频信息", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"), height=400)
         info_frame.pack_propagate(False)  # 禁止自动调整大小
         info_frame.pack(fill=tk.X, expand=False, pady=5)
         
@@ -199,7 +199,7 @@ class AudioAnalyzerApp:
         self.info_text.pack(fill=tk.BOTH, expand=True)
 
         # 评分区域 (固定高度250px)
-        score_frame = tk.LabelFrame(left_panel, text="音频评分", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"), height=200)
+        score_frame = tk.LabelFrame(left_panel, text="音频评分", bg=self.bg, fg=self.fg, font=("Segoe UI", 10, "bold"), height=190)
         score_frame.pack_propagate(False)  # 禁止自动调整大小
         score_frame.pack(fill=tk.BOTH, expand=False, pady=5)
         
@@ -448,7 +448,6 @@ class AudioAnalyzerApp:
         self.score_text.delete(1.0, tk.END)
 
         self.info_text.insert(tk.END, f"文件: {self.file_path}\n")
-        self.info_text.insert(tk.END, f"大小: {round(os.path.getsize(self.file_path)/(1024*1024), 2)} MB\n")
 
         # Step 1：加载音频
         self.status_label.config(text="加载音频文件...")
@@ -649,7 +648,7 @@ class AudioAnalyzerApp:
         
         # 版本信息
         version = tk.Label(about_win,
-                          text="版本: 1.0.0",
+                          text="版本: 2.0.0",
                           font=("Microsoft YaHei", 10),
                           bg=self.bg,
                           fg=self.fg)

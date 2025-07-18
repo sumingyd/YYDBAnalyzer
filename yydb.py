@@ -227,7 +227,7 @@ class AudioAnalyzerApp:
         self.play_tab = tk.Frame(play_frame, bg=self.bg)
         self.play_tab.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # 导出按钮
+        # 导出和关于按钮
         btn_frame = tk.Frame(left_panel, bg=self.bg)
         btn_frame.pack(fill=tk.X, pady=(10, 0))
         
@@ -235,7 +235,13 @@ class AudioAnalyzerApp:
                                    text="📤 导出分析报告", 
                                    command=self.export_report,
                                    style='Accent.TButton')
-        self.export_btn.pack(pady=5, ipadx=20)
+        self.export_btn.pack(side=tk.LEFT, padx=5, pady=5, ipadx=20)
+        
+        self.about_btn = ttk.Button(btn_frame,
+                                  text="ℹ️ 关于",
+                                  command=self.show_about,
+                                  style='Accent.TButton')
+        self.about_btn.pack(side=tk.RIGHT, padx=5, pady=5, ipadx=20)
         
         # 添加样式
         style = ttk.Style()
@@ -624,6 +630,84 @@ class AudioAnalyzerApp:
 
         threading.Thread(target=_plot, daemon=True).start()
         
+    def show_about(self):
+        about_win = tk.Toplevel(self.root)
+        about_win.title("关于 YYDB 音频分析器")
+        about_win.geometry("400x300")
+        about_win.resizable(False, False)
+        about_win.configure(bg=self.bg)
+        
+        # 标题
+        title = tk.Label(about_win, 
+                       text="YYDB 音频分析器", 
+                       font=("Microsoft YaHei", 14, "bold"),
+                       bg=self.bg,
+                       fg=self.fg)
+        title.pack(pady=10)
+        
+        # 版本信息
+        version = tk.Label(about_win,
+                          text="版本: 1.0.0",
+                          font=("Microsoft YaHei", 10),
+                          bg=self.bg,
+                          fg=self.fg)
+        version.pack()
+        
+        # 作者信息
+        author = tk.Label(about_win,
+                         text="作者: sumingyd & Deepseek",
+                         font=("Microsoft YaHei", 10),
+                         bg=self.bg,
+                         fg=self.fg)
+        author.pack(pady=5)
+        
+        # GitHub链接（可点击和复制）
+        github_frame = tk.Frame(about_win, bg=self.bg)
+        github_frame.pack()
+        
+        tk.Label(github_frame, 
+                text="GitHub: ", 
+                bg=self.bg,
+                fg=self.fg).pack(side=tk.LEFT)
+        
+        github_link = tk.Text(github_frame,
+                            height=1,
+                            width=30,
+                            font=("Microsoft YaHei", 10),
+                            bg=self.text_bg,
+                            fg="#0066cc",
+                            relief="flat",
+                            padx=2,
+                            pady=2,
+                            wrap=tk.NONE)
+        github_link.insert("1.0", "https://github.com/yourname/yydb")
+        github_link.config(state="disabled")
+        github_link.pack(side=tk.LEFT)
+        
+        # 添加点击事件
+        def open_github(event):
+            import webbrowser
+            webbrowser.open("https://github.com/yourname/yydb")
+            
+        github_link.tag_add("link", "1.0", "end")
+        github_link.tag_config("link", foreground="#0066cc", underline=True)
+        github_link.tag_bind("link", "<Button-1>", open_github)
+        
+        # 描述文本
+        desc = tk.Label(about_win,
+                       text="一个专业的音频分析工具，提供频谱分析、\n音频质量评分和详细报告导出功能。",
+                       font=("Microsoft YaHei", 10),
+                       bg=self.bg,
+                       fg=self.fg)
+        desc.pack(pady=15)
+        
+        # 关闭按钮
+        close_btn = ttk.Button(about_win,
+                             text="关闭",
+                             command=about_win.destroy,
+                             style='Accent.TButton')
+        close_btn.pack(pady=10)
+
     def export_report(self):
         if not self.file_path or self.y is None:
             messagebox.showwarning("提示", "请先分析音频。")

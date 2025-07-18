@@ -1,0 +1,24 @@
+# 编译生成目录
+build/
+dist/
+*.spec
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 编辑器临时文件
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
+
+# 日志和数据库文件
+*.log
+*.sqlite
+*.db
+
+# 系统文件
+Thumbs.db

@@ -680,14 +680,14 @@ class AudioAnalyzerApp:
                             padx=2,
                             pady=2,
                             wrap=tk.NONE)
-        github_link.insert("1.0", "https://github.com/yourname/yydb")
+        github_link.insert("1.0", "https://github.com/sumingyd/YYDBAnalyzer")
         github_link.config(state="disabled")
         github_link.pack(side=tk.LEFT)
         
         # 添加点击事件
         def open_github(event):
             import webbrowser
-            webbrowser.open("https://github.com/yourname/yydb")
+            webbrowser.open("https://github.com/sumingyd/YYDBAnalyzer")
             
         github_link.tag_add("link", "1.0", "end")
         github_link.tag_config("link", foreground="#0066cc", underline=True)

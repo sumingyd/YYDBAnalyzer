@@ -616,7 +616,7 @@ class AudioAnalyzerApp:
         
         # 版本信息
         version = tk.Label(about_win,
-                          text="版本: 3.0.0",
+                          text="版本: 4.0.0",
                           font=("Microsoft YaHei", 10),
                           bg=self.bg,
                           fg=self.fg)

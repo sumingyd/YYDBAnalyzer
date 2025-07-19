@@ -469,6 +469,8 @@ class AudioAnalyzerApp:
 
         self.status_label.config(text="加载音频文件...")
         self.y, self.sr = librosa.load(self.file_path, sr=None, mono=True, duration=60.0)
+        # 添加这一行，完整音频用于频谱图绘制
+        self.y_full, _ = librosa.load(self.file_path, sr=None, mono=True)
         self.duration = sf.info(self.file_path).duration
         self.info_text.insert(tk.END, f"采样率: {self.sr} Hz\n")
         self.info_text.insert(tk.END, f"时长: {self.format_time(self.duration)}\n")
@@ -564,7 +566,7 @@ class AudioAnalyzerApp:
             import matplotlib.pyplot as plt
             import librosa.display
             D = librosa.amplitude_to_db(
-                np.abs(librosa.stft(self.y, n_fft=1024, hop_length=1024)), ref=np.max)  # ✅ 更快参数
+                np.abs(librosa.stft(self.y_full, n_fft=1024, hop_length=1024)), ref=np.max)
 
             fig = plt.figure(facecolor=self.text_bg)
             ax = fig.add_subplot(111)

@@ -208,7 +208,7 @@ class AudioAnalyzerApp:
         self.score_text = tk.Text(score_frame, 
                                 bg=self.text_bg, 
                                 fg=self.fg, 
-                                font=("Segoe UI", 11),
+                                font=("Segoe UI", 10),
                                 relief='flat',
                                 padx=10,
                                 pady=10,
@@ -339,7 +339,7 @@ class AudioAnalyzerApp:
         self.status_label.pack(side=tk.RIGHT, padx=10)
 
     def choose_file(self):
-        path = filedialog.askopenfilename(filetypes=[("音频文件", "*.mp3 *.flac *.wav *.m4a *.ape")])
+        path = filedialog.askopenfilename(filetypes=[("音频文件", "*.mp3 *.flac *.wav *.m4a *.ape *.dsf *.dsd *.dff *.aac *.ogg *.opus *.wma *.aiff *.aif *.au *.raw *.pcm *.caf *.tta *.wv")])
         if path:
             self.file_path = path
             self.path_label.config(text=os.path.basename(path))

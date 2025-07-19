@@ -468,14 +468,16 @@ class AudioAnalyzerApp:
         self.info_text.insert(tk.END, f"大小: {size_mb} MB\n")
 
         self.status_label.config(text="加载音频文件...")
-        self.y, self.sr = librosa.load(self.file_path, sr=None, mono=True, duration=60.0)
-        # 添加这一行，完整音频用于频谱图绘制
-        self.y_full, _ = librosa.load(self.file_path, sr=None, mono=True)
+        self.y, self.sr = librosa.load(self.file_path, sr=None, mono=True, duration=60.0)  # 用于分析
+        self.y_full, _ = librosa.load(self.file_path, sr=None, mono=True)  # 用于频谱图绘制
         self.duration = sf.info(self.file_path).duration
         self.info_text.insert(tk.END, f"采样率: {self.sr} Hz\n")
         self.info_text.insert(tk.END, f"时长: {self.format_time(self.duration)}\n")
         self.overall_progress['value'] = 10
         self.overall_progress.update()
+
+        # 异步绘制频谱图，避免卡界面
+        threading.Thread(target=self.draw_spectrum, daemon=True).start()
 
         self.status_label.config(text="提取音频特征...")
         with ThreadPoolExecutor() as executor:
@@ -554,7 +556,10 @@ class AudioAnalyzerApp:
         for k, v in self.score_detail.items():
             self.score_text.insert(tk.END, f"{k}: {v}/20\n")
 
-        self.draw_spectrum()
+        self.analysis_running = False
+        self.timer_thread.join()
+        self.overall_progress['value'] = 100
+        self.status_label.config(text="分析完成")
 
     def draw_spectrum(self):
         if self.y is None or self.sr is None:
@@ -588,10 +593,6 @@ class AudioAnalyzerApp:
                 label = tk.Label(self.spectrum_tab, image=img_tk, bg=self.bg, anchor='center')
                 label.image = img_tk
                 label.pack(fill=tk.BOTH, expand=True)
-                self.analysis_running = False
-                self.timer_thread.join()
-                self.overall_progress['value'] = 100
-                self.status_label.config(text="分析完成")
 
             self.root.after(0, _display)
 

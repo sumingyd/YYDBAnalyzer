@@ -11,12 +11,14 @@ import librosa
 import librosa.display
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from mutagen import File as MutagenFile
 from datetime import datetime
 from PIL import Image, ImageTk
 import io
 from scipy.stats import kurtosis, skew
+import soundfile as sf
+from concurrent.futures import ThreadPoolExecutor
 
 def get_system_theme():
     try:
@@ -447,7 +449,6 @@ class AudioAnalyzerApp:
     def analyze_file(self):
         self.analysis_start_time = time.time()
         self.analysis_running = True
-        # 启动计时器线程
         self.timer_thread = threading.Thread(target=self.update_timer, daemon=True)
         self.timer_thread.start()
         self.status_label.config(text="开始分析...")
@@ -460,57 +461,70 @@ class AudioAnalyzerApp:
 
         self.info_text.delete(1.0, tk.END)
         self.score_text.delete(1.0, tk.END)
-
         self.info_text.insert(tk.END, f"文件: {self.file_path}\n")
 
-        # Step 1：加载音频
+        # 基本信息
+        size_mb = round(os.path.getsize(self.file_path)/(1024*1024), 2)
+        self.info_text.insert(tk.END, f"大小: {size_mb} MB\n")
+
         self.status_label.config(text="加载音频文件...")
-        self.y, self.sr = librosa.load(self.file_path, sr=None, mono=True)
-        self.duration = librosa.get_duration(y=self.y, sr=self.sr)
+        self.y, self.sr = librosa.load(self.file_path, sr=None, mono=True, duration=60.0)
+        self.duration = sf.info(self.file_path).duration
+        self.info_text.insert(tk.END, f"采样率: {self.sr} Hz\n")
+        self.info_text.insert(tk.END, f"时长: {self.format_time(self.duration)}\n")
         self.overall_progress['value'] = 10
         self.overall_progress.update()
 
-        # Step 2：计算响度、动态范围等基础特征
-        self.status_label.config(text="提取响度和动态范围...")
-        rms = np.sqrt(np.mean(self.y ** 2))
-        peak = np.max(np.abs(self.y))
-        loudness_db = 20 * np.log10(rms + 1e-9)
-        dynamic_range = 20 * np.log10((peak + 1e-9) / (rms + 1e-9))
-        silent_ratio = np.mean(np.abs(self.y) < 1e-4)
-        self.overall_progress['value'] = 25
-        self.overall_progress.update()
+        self.status_label.config(text="提取音频特征...")
+        with ThreadPoolExecutor() as executor:
+            rms_future = executor.submit(librosa.feature.rms, y=self.y)
+            zcr_future = executor.submit(librosa.feature.zero_crossing_rate, y=self.y)
+            pitch_future = executor.submit(librosa.piptrack, y=self.y, sr=self.sr)
+            spec_centroid_future = executor.submit(librosa.feature.spectral_centroid, y=self.y, sr=self.sr)
+            spec_bw_future = executor.submit(librosa.feature.spectral_bandwidth, y=self.y, sr=self.sr)
+            onset_env = librosa.onset.onset_strength(y=self.y, sr=self.sr)
+            tempo = librosa.beat.tempo(onset_envelope=onset_env, sr=self.sr)[0]
 
-        # Step 3：频谱中心、带宽、节拍等
-        self.status_label.config(text="计算频谱特征...")
-        spec_centroid = librosa.feature.spectral_centroid(y=self.y, sr=self.sr).mean()
-        spec_bw = librosa.feature.spectral_bandwidth(y=self.y, sr=self.sr).mean()
-        tempo = float(librosa.beat.tempo(y=self.y, sr=self.sr)[0])
-        zero_crossings = librosa.feature.zero_crossing_rate(y=self.y).mean()
-        self.overall_progress['value'] = 40
-        self.overall_progress.update()
+            rms_all = rms_future.result()[0]
+            rms = np.mean(rms_all)
+            peak = np.max(np.abs(self.y))
+            loudness_db = 20 * np.log10(rms + 1e-9)
+            dynamic_range = 20 * np.log10((peak + 1e-9) / (rms + 1e-9))
+            self.info_text.insert(tk.END, f"响度: {loudness_db:.2f} dB\n")
+            self.info_text.insert(tk.END, f"动态范围: {dynamic_range:.2f} dB\n")
 
-        # Step 4：提取基频
-        self.status_label.config(text="估算基频...")
-        try:
-            pitches, magnitudes = librosa.piptrack(y=self.y, sr=self.sr)
+            silent_ratio = np.mean(np.abs(self.y) < 1e-4)
+            self.info_text.insert(tk.END, f"静音比例: {silent_ratio:.2%}\n")
+
+            spec_centroid = spec_centroid_future.result().mean()
+            self.info_text.insert(tk.END, f"频谱中心: {spec_centroid:.1f} Hz\n")
+            spec_bw = spec_bw_future.result().mean()
+            self.info_text.insert(tk.END, f"频谱带宽: {spec_bw:.1f} Hz\n")
+            self.info_text.insert(tk.END, f"节拍: {tempo:.1f} BPM\n")
+
+            zero_crossings = zcr_future.result()[0].mean()
+            self.info_text.insert(tk.END, f"过零率: {zero_crossings:.4f}\n")
+
+            pitches, magnitudes = pitch_future.result()
             pitch_values = pitches[magnitudes > np.median(magnitudes)]
             pitch_mean = pitch_values.mean() if len(pitch_values) > 0 else 0
-        except:
-            pitch_mean = 0
+            self.info_text.insert(tk.END, f"基频: {pitch_mean:.1f} Hz\n")
+
         self.overall_progress['value'] = 50
         self.overall_progress.update()
 
-        # Step 5：码率、压缩率等
         self.status_label.config(text="计算码率与压缩率...")
         size_bytes = os.path.getsize(self.file_path)
         bitrate = (size_bytes * 8) / self.duration / 1000
         compression_ratio = size_bytes / (self.duration * self.sr * 2)
-        file_hash = hash_file(self.file_path)
+        file_hash = hashlib.md5(open(self.file_path, 'rb').read()).hexdigest()
+        self.info_text.insert(tk.END, f"估算比特率: {bitrate:.1f} kbps\n")
+        self.info_text.insert(tk.END, f"压缩率: {compression_ratio:.2f}\n")
+        self.info_text.insert(tk.END, f"文件哈希: \n{file_hash}\n")
         self.overall_progress['value'] = 60
         self.overall_progress.update()
 
-        # Step 6：评分系统
-        self.status_label.config(text="执行评分分析...")
+        self.status_label.config(text="评分分析...")
         self.score_detail = {
             "比特率": 20 if bitrate > 256 else 10,
             "动态范围": 20 if dynamic_range > 12 else 10,
@@ -522,130 +536,65 @@ class AudioAnalyzerApp:
         self.overall_progress['value'] = 70
         self.overall_progress.update()
 
-        # Step 7：高级统计（对称性、能量变化、峰度、偏度）
-        self.status_label.config(text="提取信号统计特征...")
-        from scipy.stats import kurtosis, skew
+        self.status_label.config(text="统计信号特征...")
         symmetry = np.mean(self.y[self.y > 0]) - np.mean(self.y[self.y < 0])
-        energy_std = np.std(librosa.feature.rms(y=self.y))
+        energy_std = np.std(rms_all)
         kurt = kurtosis(self.y)
         skw = skew(self.y)
-        self.overall_progress['value'] = 80
-        self.overall_progress.update()
-
-        # Step 8：填充信息面板
-        self.status_label.config(text="填充数据到面板...")
-        self.info_text.insert(tk.END, f"大小: {round(os.path.getsize(self.file_path)/(1024*1024), 2)} MB\n")
-        self.info_text.insert(tk.END, f"时长: {self.format_time(self.duration)}\n")
-        self.info_text.insert(tk.END, f"采样率: {self.sr} Hz\n")
-        self.info_text.insert(tk.END, f"响度: {loudness_db:.2f} dB\n")
-        self.info_text.insert(tk.END, f"动态范围: {dynamic_range:.2f} dB\n")
-        self.info_text.insert(tk.END, f"静音比例: {silent_ratio:.2%}\n")
-        self.info_text.insert(tk.END, f"频谱中心: {spec_centroid:.1f} Hz\n")
-        self.info_text.insert(tk.END, f"频谱带宽: {spec_bw:.1f} Hz\n")
-        self.info_text.insert(tk.END, f"节拍: {tempo:.1f} BPM\n")
-        self.info_text.insert(tk.END, f"基频: {pitch_mean:.1f} Hz\n")
-        self.info_text.insert(tk.END, f"过零率: {zero_crossings:.4f}\n")
-        self.info_text.insert(tk.END, f"估算比特率: {bitrate:.1f} kbps\n")
-        self.info_text.insert(tk.END, f"压缩率: {compression_ratio:.2f}\n")
-        self.info_text.insert(tk.END, f"文件哈希: \n{file_hash}\n")
         self.info_text.insert(tk.END, f"能量变化率: {energy_std:.4f}\n")
         self.info_text.insert(tk.END, f"信号对称性: {symmetry:.4f}\n")
         self.info_text.insert(tk.END, f"峰度（kurtosis）: {kurt:.4f}\n")
         self.info_text.insert(tk.END, f"偏度（skew）: {skw:.4f}\n")
-        self.overall_progress['value'] = 90
+        self.overall_progress['value'] = 80
         self.overall_progress.update()
 
-        # Step 9：填充评分面板
         self.score_text.insert(tk.END, f"综合评分：{self.score}/100\n\n")
         for k, v in self.score_detail.items():
             self.score_text.insert(tk.END, f"{k}: {v}/20\n")
-        
-        # 绘制频谱图
+
         self.draw_spectrum()
-                
+
     def draw_spectrum(self):
         if self.y is None or self.sr is None:
             return
 
         def _plot():
             import matplotlib
-            matplotlib.use("Agg")  # 使用无GUI后端
+            matplotlib.use("Agg")
             import matplotlib.pyplot as plt
             import librosa.display
+            D = librosa.amplitude_to_db(
+                np.abs(librosa.stft(self.y, n_fft=1024, hop_length=1024)), ref=np.max)  # ✅ 更快参数
 
-            # 清理旧图
-            for child in self.spectrum_tab.winfo_children():
-                child.destroy()
-
-            self.status_label.config(text="绘制频谱图...")
-
-            # 计算频谱
-            D = librosa.amplitude_to_db(np.abs(librosa.stft(self.y, n_fft=2048, hop_length=512)), ref=np.max)
-
-            # 设置样式
-            plt.style.use('dark_background' if self.theme == 'dark' else 'default')
-            plt.rcParams['font.sans-serif'] = ['Microsoft YaHei']
-            plt.rcParams['axes.unicode_minus'] = False
-
-            # 创建图形并绘图（完全自适应）
             fig = plt.figure(facecolor=self.text_bg)
             ax = fig.add_subplot(111)
-            
-            # 调整频谱图显示参数
-            img = librosa.display.specshow(D, sr=self.sr, x_axis='time', y_axis='log',
-                                        cmap='magma' if self.theme == 'dark' else 'viridis',
-                                        ax=ax,
-                                        hop_length=512)
-            
-            # 优化标签显示
-            ax.set_title('频谱图', fontsize=10, color=self.fg, pad=5)
-            ax.tick_params(colors=self.fg, labelsize=8)
-            ax.set_facecolor(self.text_bg)
-            
-            # 最小化边距
-            fig.tight_layout(pad=0.2, h_pad=0.2, w_pad=0.2)
-
-            # 保存图像时完全去除多余空白
+            librosa.display.specshow(D, sr=self.sr, x_axis='time', y_axis='log', cmap='magma', ax=ax)
+            fig.tight_layout(pad=0.2)
             buf = io.BytesIO()
-            fig.savefig(buf, 
-                      format='png', 
-                      bbox_inches='tight',
-                      pad_inches=0.05,
-                      dpi='figure')
+            fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0.05, dpi='figure')
             plt.close(fig)
             buf.seek(0)
-            
-            # 加载并调整图像大小
             pil_image = Image.open(buf)
-            img_width = self.spectrum_tab.winfo_width() - 20  # 留10px边距
-            if img_width > 0:  # 确保有有效宽度
+            img_width = self.spectrum_tab.winfo_width() - 20
+            if img_width > 0:
                 pil_image = pil_image.resize((img_width, int(pil_image.height * img_width / pil_image.width)))
-            
-            # 转为Tkinter图像
             img_tk = ImageTk.PhotoImage(pil_image)
 
             def _display():
-                # 清除旧图像
                 for child in self.spectrum_tab.winfo_children():
                     child.destroy()
-                
-                # 创建自适应标签
-                label = tk.Label(self.spectrum_tab, 
-                               image=img_tk, 
-                               bg=self.bg,
-                               anchor='center')
+                label = tk.Label(self.spectrum_tab, image=img_tk, bg=self.bg, anchor='center')
                 label.image = img_tk
                 label.pack(fill=tk.BOTH, expand=True)
-
                 self.analysis_running = False
-                self.timer_thread.join()  # 等待计时器线程结束
+                self.timer_thread.join()
                 self.overall_progress['value'] = 100
-                self.overall_progress.update()
                 self.status_label.config(text="分析完成")
 
             self.root.after(0, _display)
 
         threading.Thread(target=_plot, daemon=True).start()
+
         
     def show_about(self):
         about_win = tk.Toplevel(self.root)

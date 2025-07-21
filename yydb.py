@@ -1,6 +1,7 @@
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from tkinterdnd2 import TkinterDnD, DND_FILES
 import threading
 import platform
 import hashlib
@@ -154,6 +155,10 @@ class AudioAnalyzerApp:
         # 先清除所有子组件
         for widget in self.root.winfo_children():
             widget.destroy()
+            
+        # 设置拖放支持 (使用tkinterdnd2)
+        self.root.drop_target_register(DND_FILES)
+        self.root.dnd_bind('<<Drop>>', self.handle_drop)
             
         top = tk.Frame(self.root, bg=self.bg)
         top.pack(fill=tk.X, padx=10, pady=10)
@@ -337,6 +342,23 @@ class AudioAnalyzerApp:
             fg=self.fg,
             font=("Segoe UI", 9))
         self.status_label.pack(side=tk.RIGHT, padx=10)
+
+    def handle_drop(self, event):
+        """处理拖放文件事件"""
+        path = event.data.strip('{}')  # 去除Windows路径可能包含的花括号
+        if os.path.isfile(path):
+            ext = os.path.splitext(path)[1].lower()
+            supported_exts = ['.mp3', '.flac', '.wav', '.m4a', '.ape', '.dsf', 
+                            '.dsd', '.dff', '.aac', '.ogg', '.opus', '.wma', 
+                            '.aiff', '.aif', '.au', '.raw', '.pcm', '.caf', 
+                            '.tta', '.wv']
+            if ext in supported_exts:
+                self.file_path = path
+                self.path_label.config(text=os.path.basename(path))
+                self.analyze_btn.config(state=tk.NORMAL)
+                self.reset_player()
+            else:
+                messagebox.showerror("错误", f"不支持的文件类型: {ext}")
 
     def choose_file(self):
         path = filedialog.askopenfilename(filetypes=[("音频文件", "*.mp3 *.flac *.wav *.m4a *.ape *.dsf *.dsd *.dff *.aac *.ogg *.opus *.wma *.aiff *.aif *.au *.raw *.pcm *.caf *.tta *.wv")])
@@ -616,7 +638,7 @@ class AudioAnalyzerApp:
         
         # 版本信息
         version = tk.Label(about_win,
-                          text="版本: 4.0.0",
+                          text="版本: 5.0.0",
                           font=("Microsoft YaHei", 10),
                           bg=self.bg,
                           fg=self.fg)
@@ -737,6 +759,6 @@ class AudioAnalyzerApp:
             messagebox.showerror("导出失败", str(e))
 
 if __name__ == '__main__':
-    root = tk.Tk()
+    root = TkinterDnD.Tk()
     app = AudioAnalyzerApp(root)
     root.mainloop()

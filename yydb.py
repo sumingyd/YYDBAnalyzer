@@ -1,7 +1,8 @@
 import os
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from tkinterdnd2 import TkinterDnD, DND_FILES
+import ctypes
+import ctypes.wintypes as wintypes
 import threading
 import platform
 import hashlib
@@ -156,9 +157,8 @@ class AudioAnalyzerApp:
         for widget in self.root.winfo_children():
             widget.destroy()
             
-        # 设置拖放支持 (使用tkinterdnd2)
-        self.root.drop_target_register(DND_FILES)
-        self.root.dnd_bind('<<Drop>>', self.handle_drop)
+        # 设置原生拖放支持
+        self.enable_drag_drop()
             
         top = tk.Frame(self.root, bg=self.bg)
         top.pack(fill=tk.X, padx=10, pady=10)
@@ -758,7 +758,41 @@ class AudioAnalyzerApp:
         except Exception as e:
             messagebox.showerror("导出失败", str(e))
 
+    def enable_drag_drop(self):
+        """Windows原生拖放API实现"""
+        WM_DROPFILES = 0x0233
+        GWL_WNDPROC = -4
+        
+        # 获取窗口句柄
+        hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+        
+        # 注册为拖放目标
+        ctypes.windll.shell32.DragAcceptFiles(hwnd, True)
+        
+        # 保存原始窗口过程
+        self.old_wndproc = ctypes.windll.user32.GetWindowLongPtrW(hwnd, GWL_WNDPROC)
+        
+        # 新窗口过程处理拖放消息
+        def wndproc(hwnd, msg, wparam, lparam):
+            if msg == WM_DROPFILES:
+                # 获取拖放文件路径
+                file_count = ctypes.windll.shell32.DragQueryFileW(wparam, 0xFFFFFFFF, None, 0)
+                paths = []
+                for i in range(file_count):
+                    buf = ctypes.create_unicode_buffer(260)
+                    ctypes.windll.shell32.DragQueryFileW(wparam, i, buf, ctypes.sizeof(buf))
+                    paths.append(buf.value)
+                if paths:
+                    self.handle_drop(paths[0])
+                ctypes.windll.shell32.DragFinish(wparam)
+                return 0
+            return ctypes.windll.user32.CallWindowProcW(self.old_wndproc, hwnd, msg, wparam, lparam)
+        
+        # 设置新窗口过程
+        self.new_wndproc = ctypes.WINFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)(wndproc)
+        ctypes.windll.user32.SetWindowLongPtrW(hwnd, GWL_WNDPROC, self.new_wndproc)
+
 if __name__ == '__main__':
-    root = TkinterDnD.Tk()
+    root = tk.Tk()
     app = AudioAnalyzerApp(root)
     root.mainloop()
